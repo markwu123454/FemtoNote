@@ -295,6 +295,16 @@
     }
   }
 
+  // Persist a word the user taught the spell checker ("Save spelling"). Stored
+  // globally in config so it survives restarts and applies across subjects.
+  function addWord(word) {
+    const w = String(word || "").trim();
+    if (!w) return;
+    const cur = config.custom_words || [];
+    if (cur.includes(w)) return;
+    commitConfig({ ...config, custom_words: [...cur, w] });
+  }
+
   async function refreshSessions() {
     try {
       sessions = await listSessions();
@@ -450,7 +460,14 @@
       class="editor-wrap"
       style="--ed-font: {fontStack(ed.font)}; --ed-size: {ed.fontSize}px; --ed-lh: {ed.lineHeight}; --ed-max: {ed.maxWidth === 0 ? 'none' : ed.maxWidth + 'px'}; --ed-mar: {ed.align === 'left' ? '0' : 'auto'};"
     >
-      <Editor bind:this={editorComp} value={editorText} onChange={handleChange} />
+      <Editor
+        bind:this={editorComp}
+        value={editorText}
+        onChange={handleChange}
+        spell={ed}
+        customWords={config.custom_words || []}
+        onAddWord={addWord}
+      />
     </main>
 
     <!-- ===== STATUS BAR ===== -->

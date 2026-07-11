@@ -14,7 +14,22 @@ export const EDITOR_DEFAULTS = {
   lineHeight: 1.7,
   maxWidth: 780,
   align: "center", // "center" | "left"
+  spellcheck: true, // underline misspellings (our checker, not the OS webview)
+  autocorrect: "conservative", // "off" | "conservative" | "balanced"
+  autocorrectHint: true, // transient blue underline on auto-corrected words
 };
+
+// How long the auto-correct underline lingers before fading, and how many
+// further words you can type before it clears — whichever comes first. Kept out
+// of the settings UI to avoid clutter; tuned here.
+export const HINT_LINGER_MS = 15000;
+export const HINT_LINGER_WORDS = 8;
+
+export const AUTOCORRECT_OPTIONS = [
+  { id: "off", label: "Off" },
+  { id: "conservative", label: "Careful" },
+  { id: "balanced", label: "Balanced" },
+];
 
 /** Fill any missing fields so the UI never reads `undefined` before load. */
 export function withEditorDefaults(editor) {

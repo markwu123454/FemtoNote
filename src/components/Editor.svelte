@@ -10,15 +10,139 @@
   // changes apply live without reconfiguring the editor.
   import { onMount, onDestroy } from "svelte";
   import { EditorView, keymap, placeholder as cmPlaceholder } from "@codemirror/view";
-  import { EditorState } from "@codemirror/state";
+  import { EditorState, EditorSelection } from "@codemirror/state";
   import { history, historyKeymap, defaultKeymap, undo, redo } from "@codemirror/commands";
+  import { createSpeller, spellcheck, requestRecheck } from "../lib/spellcheck.js";
+  import { HINT_LINGER_MS, HINT_LINGER_WORDS } from "../lib/editor.js";
+
+  // --- Outline / hierarchy via tabbing ------------------------------------
+  // One tab = one level. Tab indents, Shift-Tab outdents, and Enter carries the
+  // current line's leading whitespace to the next line — so once you tab in,
+  // every following line stays at that level until you Shift-Tab back out. A
+  // real "\t" is used (not spaces) so a single Backspace removes exactly one
+  // level, matching the mental model of "delete a tab."
+  const INDENT_UNIT = "\t";
+
+  /** Line numbers touched by any selection range (1-based, deduped). */
+  function selectedLineNumbers(state) {
+    const lines = new Set();
+    for (const range of state.selection.ranges) {
+      const first = state.doc.lineAt(range.from).number;
+      const last = state.doc.lineAt(range.to).number;
+      for (let n = first; n <= last; n++) lines.add(n);
+    }
+    return lines;
+  }
+
+  /** Tab: add one indent level to every selected line. */
+  function indentLines(view) {
+    const { state } = view;
+    const changes = [];
+    for (const n of selectedLineNumbers(state)) {
+      changes.push({ from: state.doc.line(n).from, insert: INDENT_UNIT });
+    }
+    // No explicit selection: CodeMirror maps the caret through the inserts.
+    view.dispatch(state.update({ changes, scrollIntoView: true, userEvent: "input.indent" }));
+    return true;
+  }
+
+  /** Shift-Tab: remove one indent level (a leading tab, or up to tabSize spaces). */
+  function outdentLines(view) {
+    const { state } = view;
+    const changes = [];
+    for (const n of selectedLineNumbers(state)) {
+      const line = state.doc.line(n);
+      let remove = 0;
+      if (line.text.startsWith("\t")) remove = 1;
+      else while (remove < state.tabSize && line.text[remove] === " ") remove++;
+      if (remove > 0) changes.push({ from: line.from, to: line.from + remove });
+    }
+    // Always consume Tab (return true) so focus never leaves the editor.
+    if (changes.length) {
+      view.dispatch(state.update({ changes, scrollIntoView: true, userEvent: "delete.dedent" }));
+    }
+    return true;
+  }
+
+  /** Enter: newline that copies the current line's leading whitespace. */
+  function newlineKeepIndent(view) {
+    const { state } = view;
+    const tr = state.changeByRange((range) => {
+      const line = state.doc.lineAt(range.from);
+      const indent = /^[\t ]*/.exec(line.text)[0];
+      const insert = state.lineBreak + indent;
+      return {
+        changes: { from: range.from, to: range.to, insert },
+        range: EditorSelection.cursor(range.from + insert.length),
+      };
+    });
+    view.dispatch(state.update(tr, { scrollIntoView: true, userEvent: "input" }));
+    return true;
+  }
 
   export let value = "";
   export let placeholder = "Start typing…";
   export let onChange = () => {};
+  // Spell-check config (subset of editor prefs), the learned-word list, and a
+  // callback to persist a newly-saved word. All optional so the editor works
+  // standalone.
+  export let spell = {};
+  export let customWords = [];
+  export let onAddWord = () => {};
 
   let host;
   let view;
+
+  // --- Spell checking -----------------------------------------------------
+  // A single worker-backed speller shared across session resets. `spellSettings`
+  // is mutated in place so the extension reads live values without a rebuild.
+  let speller = null;
+  let seeded = new Set();
+  const spellSettings = {
+    enabled: true,
+    autocorrect: "conservative",
+    hint: true,
+    indicatorMs: HINT_LINGER_MS,
+    indicatorWords: HINT_LINGER_WORDS,
+  };
+  const spellCtx = {
+    getSpeller: () => speller,
+    settings: spellSettings,
+    onAddWord: (w) => onAddWord(w),
+  };
+
+  function ensureSpeller() {
+    if (speller) return speller;
+    speller = createSpeller();
+    seeded = new Set();
+    syncCustomWords(customWords);
+    return speller;
+  }
+
+  function syncCustomWords(list) {
+    if (!speller) return;
+    let added = false;
+    for (const w of list || []) {
+      if (w && !seeded.has(w)) {
+        seeded.add(w);
+        speller.add(w);
+        added = true;
+      }
+    }
+    if (added) requestRecheck(view);
+  }
+
+  function applySpell(s) {
+    spellSettings.enabled = s?.spellcheck !== false;
+    spellSettings.autocorrect = s?.autocorrect || "conservative";
+    spellSettings.hint = s?.autocorrectHint !== false;
+    if (spellSettings.enabled) ensureSpeller();
+    requestRecheck(view);
+  }
+
+  // React to live pref / learned-word changes coming from the Settings window.
+  $: applySpell(spell);
+  $: (speller, syncCustomWords(customWords));
 
   const theme = EditorView.theme({
     "&": {
@@ -55,8 +179,16 @@
         history(),
         EditorView.lineWrapping,
         cmPlaceholder(placeholder),
+        // Outline keys first so they take precedence over defaultKeymap's Enter.
+        keymap.of([
+          { key: "Tab", run: indentLines, shift: outdentLines },
+          { key: "Enter", run: newlineKeepIndent },
+        ]),
         keymap.of([...defaultKeymap, ...historyKeymap]),
-        EditorView.contentAttributes.of({ spellcheck: "true", "aria-label": "Note editor" }),
+        // Our own checker owns spelling now, so the OS/webview one stays off to
+        // avoid double underlines.
+        EditorView.contentAttributes.of({ spellcheck: "false", "aria-label": "Note editor" }),
+        ...spellcheck(spellCtx),
         theme,
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onChange(u.state.doc.toString());
@@ -67,9 +199,14 @@
 
   onMount(() => {
     view = new EditorView({ state: makeState(value), parent: host });
+    if (spellSettings.enabled) ensureSpeller();
+    requestRecheck(view);
     view.focus();
   });
-  onDestroy(() => view?.destroy());
+  onDestroy(() => {
+    view?.destroy();
+    speller?.destroy();
+  });
 
   // --- Imperative API for the parent (via bind:this) ----------------------
   export function focus() {

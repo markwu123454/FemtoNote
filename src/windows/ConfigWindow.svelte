@@ -10,7 +10,7 @@
   import { loadConfig, saveConfig, dataDir } from "../lib/api.js";
   import { broadcastConfig, closeSelf, CONFIG_CHANGED } from "../lib/appwindows.js";
   import { DAYS, makeId, INBOX_ID } from "../lib/routing.js";
-  import { FONT_OPTIONS, withEditorDefaults } from "../lib/editor.js";
+  import { FONT_OPTIONS, AUTOCORRECT_OPTIONS, withEditorDefaults } from "../lib/editor.js";
 
   export let section = "setup"; // "setup" | "settings"
 
@@ -250,6 +250,38 @@
             <button class:on={ed.align === "left"} on:click={() => setEditor({ align: "left" })}>Left</button>
           </div>
         </div>
+
+        <div class="field">
+          <span class="label">Spell check</span>
+          <div class="seg">
+            <button class:on={ed.spellcheck} on:click={() => setEditor({ spellcheck: true })}>On</button>
+            <button class:on={!ed.spellcheck} on:click={() => setEditor({ spellcheck: false })}>Off</button>
+          </div>
+          <p class="hint tiny">A built-in dictionary underlines misspellings and learns words you save — independent of the OS. Right-click a word for suggestions.</p>
+        </div>
+
+        {#if ed.spellcheck}
+          <div class="field">
+            <span class="label">Auto-correct</span>
+            <div class="seg">
+              {#each AUTOCORRECT_OPTIONS as o}
+                <button class:on={ed.autocorrect === o.id} on:click={() => setEditor({ autocorrect: o.id })}>{o.label}</button>
+              {/each}
+            </div>
+            <p class="hint tiny">Fixes only clear, single-candidate typos as you type; anything ambiguous stays a right-click suggestion. <span class="mono">Careful</span> is strictest. Undo (Ctrl Z) reverts any fix.</p>
+          </div>
+
+          {#if ed.autocorrect !== "off"}
+            <div class="field">
+              <span class="label">Auto-correct marker</span>
+              <div class="seg">
+                <button class:on={ed.autocorrectHint} on:click={() => setEditor({ autocorrectHint: true })}>Show</button>
+                <button class:on={!ed.autocorrectHint} on:click={() => setEditor({ autocorrectHint: false })}>Hide</button>
+              </div>
+              <p class="hint tiny">A brief blue underline on corrected words so a change never slips by. It fades after a few seconds.</p>
+            </div>
+          {/if}
+        {/if}
 
       {:else}
         <p class="hint">Where exports land and how the app looks.</p>

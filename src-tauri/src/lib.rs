@@ -58,6 +58,15 @@ struct EditorPrefs {
     /// "center" | "left"
     #[serde(default = "default_align")]
     align: String,
+    /// Underline misspelled words (our own checker, not the OS webview).
+    #[serde(default = "default_true")]
+    spellcheck: bool,
+    /// Auto-correct aggressiveness: "off" | "conservative" | "balanced".
+    #[serde(default = "default_autocorrect")]
+    autocorrect: String,
+    /// Show the transient blue underline marking a word we auto-corrected.
+    #[serde(default = "default_true")]
+    autocorrect_hint: bool,
 }
 
 fn default_font() -> String {
@@ -75,6 +84,12 @@ fn default_max_width() -> u32 {
 fn default_align() -> String {
     "center".to_string()
 }
+fn default_true() -> bool {
+    true
+}
+fn default_autocorrect() -> String {
+    "conservative".to_string()
+}
 
 impl Default for EditorPrefs {
     fn default() -> Self {
@@ -84,6 +99,9 @@ impl Default for EditorPrefs {
             line_height: default_line_height(),
             max_width: default_max_width(),
             align: default_align(),
+            spellcheck: default_true(),
+            autocorrect: default_autocorrect(),
+            autocorrect_hint: default_true(),
         }
     }
 }
@@ -99,6 +117,9 @@ struct Config {
     theme: String,
     #[serde(default)]
     editor: EditorPrefs,
+    /// Words the user has taught the spell checker ("Save spelling").
+    #[serde(default)]
+    custom_words: Vec<String>,
 }
 
 fn default_theme() -> String {
@@ -116,6 +137,7 @@ impl Default for Config {
             export_dir: None,
             theme: default_theme(),
             editor: EditorPrefs::default(),
+            custom_words: vec![],
         }
     }
 }
