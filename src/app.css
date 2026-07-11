@@ -1,0 +1,188 @@
+/* ------------------------------------------------------------------ *
+ * Bandnote design tokens.
+ * Neutral chrome, one accent, monospace for data, dual-themed.
+ * ------------------------------------------------------------------ */
+
+:root {
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: "Cascadia Code", ui-monospace, "SF Mono", "Consolas", "Menlo", monospace;
+  --font-editor: "Iowan Old Style", "Palatino Linotype", "Georgia", ui-serif, serif;
+
+  --fs-chrome: 13px;
+  --fs-label: 11px;
+  --fs-editor: 18px;
+
+  --radius: 8px;
+  --band-top: 36px;
+  --band-bottom: 28px;
+
+  /* Light theme (default) */
+  --bg: #fbfbfa;
+  --bg-elevated: #ffffff;
+  --bg-sunken: #f2f1ee;
+  --border: #e6e4df;
+  --border-strong: #d6d4cd;
+
+  --text-strong: #1a1a18;
+  --text: #3c3b37;
+  --text-muted: #7c7a73;
+  --text-faint: #a8a69d;
+
+  --accent: #3b62f0;
+  --accent-tint: rgba(59, 98, 240, 0.10);
+  --accent-contrast: #ffffff;
+
+  --ok: #1a7f37;
+  --warn: #9a6700;
+  --err: #b42318;
+
+  --shadow-dialog: 0 12px 40px rgba(20, 20, 18, 0.18), 0 2px 8px rgba(20, 20, 18, 0.10);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17171b;
+    --bg-elevated: #1f1f25;
+    --bg-sunken: #121216;
+    --border: #2b2b32;
+    --border-strong: #3a3a43;
+
+    --text-strong: #f3f2ef;
+    --text: #d0cfc9;
+    --text-muted: #8b8a84;
+    --text-faint: #5e5d58;
+
+    --accent: #7b9bff;
+    --accent-tint: rgba(123, 155, 255, 0.14);
+    --accent-contrast: #12121a;
+
+    --ok: #47c266;
+    --warn: #e0a83f;
+    --err: #ff6f61;
+
+    --shadow-dialog: 0 14px 46px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Manual overrides win over the OS preference in both directions. */
+:root[data-theme="light"] {
+  --bg: #fbfbfa;
+  --bg-elevated: #ffffff;
+  --bg-sunken: #f2f1ee;
+  --border: #e6e4df;
+  --border-strong: #d6d4cd;
+  --text-strong: #1a1a18;
+  --text: #3c3b37;
+  --text-muted: #7c7a73;
+  --text-faint: #a8a69d;
+  --accent: #3b62f0;
+  --accent-tint: rgba(59, 98, 240, 0.10);
+  --accent-contrast: #ffffff;
+  --ok: #1a7f37;
+  --warn: #9a6700;
+  --err: #b42318;
+  --shadow-dialog: 0 12px 40px rgba(20, 20, 18, 0.18), 0 2px 8px rgba(20, 20, 18, 0.10);
+}
+
+:root[data-theme="dark"] {
+  --bg: #17171b;
+  --bg-elevated: #1f1f25;
+  --bg-sunken: #121216;
+  --border: #2b2b32;
+  --border-strong: #3a3a43;
+  --text-strong: #f3f2ef;
+  --text: #d0cfc9;
+  --text-muted: #8b8a84;
+  --text-faint: #5e5d58;
+  --accent: #7b9bff;
+  --accent-tint: rgba(123, 155, 255, 0.14);
+  --accent-contrast: #12121a;
+  --ok: #47c266;
+  --warn: #e0a83f;
+  --err: #ff6f61;
+  --shadow-dialog: 0 14px 46px rgba(0, 0, 0, 0.55), 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--fs-chrome);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Data-flavored text: paths, counts, timestamps, subject ids. */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  font-size: var(--fs-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Thin floating scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 6px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint);
+  background-clip: content-box;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+@keyframes slide-up {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    transform: translateX(-2px);
+  }
+  50% {
+    transform: translateX(2px);
+  }
+  100% {
+    transform: translateX(-2px);
+  }
+}
