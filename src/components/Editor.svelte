@@ -89,14 +89,28 @@
   export let spell = {};
   export let customWords = [];
   export let onAddWord = () => {};
+  // An externally-owned speller (see spellcheck.js's createSpeller) shared by
+  // a parent that mounts many editors at once (e.g. scroll-up session
+  // history) — avoids spinning up one dictionary-loading worker per block. If
+  // omitted, this editor creates and owns its own.
+  export let speller = null;
+  // "flow": auto-height, no internal scroll clipping — for an editor embedded
+  // inline in a larger scrolling page (past sessions) rather than filling a
+  // fixed-height pane (the live capture surface).
+  export let flow = false;
+  // Past-session blocks mount while the user is elsewhere; stealing focus on
+  // mount would yank the cursor out of the live capture buffer.
+  export let focusOnMount = true;
 
   let host;
   let view;
 
   // --- Spell checking -----------------------------------------------------
-  // A single worker-backed speller shared across session resets. `spellSettings`
-  // is mutated in place so the extension reads live values without a rebuild.
-  let speller = null;
+  // `spellSettings` is mutated in place so the extension reads live values
+  // without rebuilding the editor. `ownSpeller` is only created when no
+  // externally-owned `speller` prop was passed in, and only this editor may
+  // destroy it.
+  let ownSpeller = null;
   let seeded = new Set();
   const spellSettings = {
     enabled: true,
@@ -106,26 +120,29 @@
     indicatorWords: HINT_LINGER_WORDS,
   };
   const spellCtx = {
-    getSpeller: () => speller,
+    getSpeller: () => speller || ownSpeller,
     settings: spellSettings,
     onAddWord: (w) => onAddWord(w),
   };
 
   function ensureSpeller() {
     if (speller) return speller;
-    speller = createSpeller();
-    seeded = new Set();
+    if (!ownSpeller) {
+      ownSpeller = createSpeller();
+      seeded = new Set();
+    }
     syncCustomWords(customWords);
-    return speller;
+    return ownSpeller;
   }
 
   function syncCustomWords(list) {
-    if (!speller) return;
+    const sp = speller || ownSpeller;
+    if (!sp) return;
     let added = false;
     for (const w of list || []) {
       if (w && !seeded.has(w)) {
         seeded.add(w);
-        speller.add(w);
+        sp.add(w);
         added = true;
       }
     }
@@ -140,37 +157,39 @@
     requestRecheck(view);
   }
 
-  // React to live pref / learned-word changes coming from the Settings window.
+  // React to live pref / learned-word / shared-speller changes.
   $: applySpell(spell);
-  $: (speller, syncCustomWords(customWords));
+  $: (speller, customWords, syncCustomWords(customWords));
 
-  const theme = EditorView.theme({
-    "&": {
-      height: "100%",
-      backgroundColor: "transparent",
-      color: "var(--text-strong)",
-    },
-    "&.cm-focused": { outline: "none" },
-    ".cm-scroller": {
-      fontFamily: "var(--ed-font, var(--font-editor))",
-      fontSize: "var(--ed-size, 18px)",
-      lineHeight: "var(--ed-lh, 1.7)",
-      overflow: "auto",
-      padding: "28px 40px 40px",
-    },
-    ".cm-content": {
-      maxWidth: "var(--ed-max, 780px)",
-      marginInline: "var(--ed-mar, auto)",
-      caretColor: "var(--accent)",
-      padding: "0",
-    },
-    ".cm-line": { padding: "0" },
-    ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)" },
-    ".cm-placeholder": { color: "var(--text-faint)" },
-    "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
-      backgroundColor: "var(--accent-tint)",
-    },
-  });
+  function buildTheme(isFlow) {
+    return EditorView.theme({
+      "&": {
+        height: isFlow ? "auto" : "100%",
+        backgroundColor: "transparent",
+        color: "var(--text-strong)",
+      },
+      "&.cm-focused": { outline: "none" },
+      ".cm-scroller": {
+        fontFamily: "var(--ed-font, var(--font-editor))",
+        fontSize: "var(--ed-size, 18px)",
+        lineHeight: "var(--ed-lh, 1.7)",
+        overflow: isFlow ? "visible" : "auto",
+        padding: isFlow ? "4px 40px 20px" : "28px 40px 40px",
+      },
+      ".cm-content": {
+        maxWidth: "var(--ed-max, 780px)",
+        marginInline: "var(--ed-mar, auto)",
+        caretColor: "var(--accent)",
+        padding: "0",
+      },
+      ".cm-line": { padding: "0" },
+      ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--accent)" },
+      ".cm-placeholder": { color: "var(--text-faint)" },
+      "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
+        backgroundColor: "var(--accent-tint)",
+      },
+    });
+  }
 
   function makeState(doc) {
     return EditorState.create({
@@ -189,7 +208,7 @@
         // avoid double underlines.
         EditorView.contentAttributes.of({ spellcheck: "false", "aria-label": "Note editor" }),
         ...spellcheck(spellCtx),
-        theme,
+        buildTheme(flow),
         EditorView.updateListener.of((u) => {
           if (u.docChanged) onChange(u.state.doc.toString());
         }),
@@ -201,11 +220,11 @@
     view = new EditorView({ state: makeState(value), parent: host });
     if (spellSettings.enabled) ensureSpeller();
     requestRecheck(view);
-    view.focus();
+    if (focusOnMount) view.focus();
   });
   onDestroy(() => {
     view?.destroy();
-    speller?.destroy();
+    ownSpeller?.destroy(); // never destroy a speller we don't own
   });
 
   // --- Imperative API for the parent (via bind:this) ----------------------
@@ -228,13 +247,27 @@
   export function doRedo() {
     if (view) redo(view);
   }
+  /** Move the caret to the very end of the document and focus — used when the
+   *  user clicks in blank space below the last line (see App.svelte's
+   *  live-slot click handler), so the "infinite page" feel doesn't require an
+   *  actual click hit on existing text. */
+  export function focusEnd() {
+    if (!view) return;
+    const end = view.state.doc.length;
+    view.dispatch({ selection: EditorSelection.cursor(end), scrollIntoView: true });
+    view.focus();
+  }
 </script>
 
-<div class="cm-host" bind:this={host}></div>
+<div class="cm-host" class:flow bind:this={host}></div>
 
 <style>
   .cm-host {
     height: 100%;
     overflow: hidden;
+  }
+  .cm-host.flow {
+    height: auto;
+    overflow: visible;
   }
 </style>

@@ -8,6 +8,12 @@ export const saveConfig = (config) => invoke("save_config", { config });
 export const writeSession = (session) => invoke("write_session", { session });
 export const listSessions = () => invoke("list_sessions");
 
+// Paginated full-content history for one subject, newest-first. `before` is an
+// exclusive session-id cursor (pass the active session's id on the first page
+// so it never shows up as its own history).
+export const listSubjectSessions = (subjectId, before, limit) =>
+  invoke("list_subject_sessions", { subjectId, before: before ?? null, limit });
+
 export const previewSubject = (subjectId, subjectName) =>
   invoke("preview_subject", { subjectId, subjectName });
 

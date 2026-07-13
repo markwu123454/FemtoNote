@@ -1,22 +1,22 @@
 <div align="center">
 
-# BandNote
+# FemtoNote
 
 **A schedule-aware, low-friction note-capture desktop app for students.**
 
-[![Release](https://img.shields.io/github/v/release/markwu123454/BandNote?sort=semver)](https://github.com/markwu123454/BandNote/releases)
-[![Downloads](https://img.shields.io/github/downloads/markwu123454/BandNote/total)](https://github.com/markwu123454/BandNote/releases)
+[![Release](https://img.shields.io/github/v/release/markwu123454/FemtoNote?sort=semver)](https://github.com/markwu123454/FemtoNote/releases)
+[![Downloads](https://img.shields.io/github/downloads/markwu123454/FemtoNote/total)](https://github.com/markwu123454/FemtoNote/releases)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0a7bbb)](https://github.com/markwu123454/BandNote/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-0a7bbb)](https://github.com/markwu123454/FemtoNote/releases)
 [![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB?logo=tauri&logoColor=white)](https://tauri.app)
 
-Open it and type. Bandnote silently files each note under the class you're
+Open it and type. FemtoNote silently files each note under the class you're
 currently in, autosaves as you go, and later exports clean per-subject markdown
 you can feed straight into an AI research tool like NotebookLM.
 
 <br>
 
-<img src="docs/screenshot.png" width="900" alt="Bandnote open in capture mode: the three-band layout with the accent-colored Subject indicator in the top bar showing the auto-routed class, the editor filling the center with a live note, and the status bar reading 'Autosaved 14:03:05 · Chemistry' with a clickable 'class changed → switch' prompt.">
+<img src="docs/screenshot.png" width="900" alt="FemtoNote open in capture mode: the three-band layout with the accent-colored Subject indicator in the top bar showing the auto-routed class, the editor filling the center with a live note, and the status bar reading 'Autosaved 14:03:05 · Chemistry' with a clickable 'class changed → switch' prompt.">
 
 </div>
 
@@ -29,17 +29,17 @@ long-form manuscripts or as a second brain you groom by hand.
 ## Download & install
 
 Grab the latest build for your OS from the
-[**Releases**](https://github.com/markwu123454/BandNote/releases) page:
+[**Releases**](https://github.com/markwu123454/FemtoNote/releases) page:
 
 | Platform    | File                             | What it is                                                      |
 |-------------|----------------------------------|-----------------------------------------------------------------|
-| **Windows** | `Bandnote_x.y.z_x64-setup.exe`   | NSIS installer — **recommended**                                |
-| **Windows** | `Bandnote_x.y.z_x64_en-US.msi`   | MSI installer — for managed / enterprise deployment             |
-| **macOS**   | `Bandnote_x.y.z_universal.dmg`   | Disk image, universal (Intel + Apple Silicon) — **recommended** |
-| **macOS**   | `Bandnote_universal.app.tar.gz`  | `.app` bundle tarball (also used by the auto-updater)           |
-| **Linux**   | `Bandnote_x.y.z_amd64.AppImage`  | Portable — runs on most distros, no install — **recommended**   |
-| **Linux**   | `Bandnote_x.y.z_amd64.deb`       | Debian / Ubuntu package                                         |
-| **Linux**   | `Bandnote-x.y.z-1.x86_64.rpm`    | Fedora / RHEL / openSUSE package                                |
+| **Windows** | `FemtoNote_x.y.z_x64-setup.exe`   | NSIS installer — **recommended**                                |
+| **Windows** | `FemtoNote_x.y.z_x64_en-US.msi`   | MSI installer — for managed / enterprise deployment             |
+| **macOS**   | `FemtoNote_x.y.z_universal.dmg`   | Disk image, universal (Intel + Apple Silicon) — **recommended** |
+| **macOS**   | `FemtoNote_universal.app.tar.gz`  | `.app` bundle tarball (also used by the auto-updater)           |
+| **Linux**   | `FemtoNote_x.y.z_amd64.AppImage`  | Portable — runs on most distros, no install — **recommended**   |
+| **Linux**   | `FemtoNote_x.y.z_amd64.deb`       | Debian / Ubuntu package                                         |
+| **Linux**   | `FemtoNote-x.y.z-1.x86_64.rpm`    | Fedora / RHEL / openSUSE package                                |
 
 The `.sig` files and `latest.json` alongside them are for the built-in
 auto-updater, you don't need to download those.
@@ -49,14 +49,14 @@ The app isn't code-signed on any platform, so each OS shows a first-run warning:
 - **Windows** — SmartScreen may warn; click **More info → Run anyway**. Needs the
   WebView2 runtime, which ships with current Windows.
 - **macOS** — Gatekeeper blocks unsigned apps: **right-click the app → Open** the
-  first time (or run `xattr -dr com.apple.quarantine "/Applications/Bandnote.app"`).
-- **Linux** — for the AppImage, `chmod +x Bandnote*.AppImage` then run it; install
-  the `.deb` with `sudo apt install ./Bandnote*.deb` or the `.rpm` with
-  `sudo dnf install ./Bandnote*.rpm`.
+  first time (or run `xattr -dr com.apple.quarantine "/Applications/FemtoNote.app"`).
+- **Linux** — for the AppImage, `chmod +x FemtoNote*.AppImage` then run it; install
+  the `.deb` with `sudo apt install ./FemtoNote*.deb` or the `.rpm` with
+  `sudo dnf install ./FemtoNote*.rpm`.
 
 ## How it works
 
-Bandnote has three phases: set up your schedule once, capture constantly, export
+FemtoNote has three phases: set up your schedule once, capture constantly, export
 occasionally.
 
 - **Setup (once):** open **⚙ Settings** → add your subjects, then add weekly
@@ -79,13 +79,13 @@ occasionally.
   in session right now, decided from your weekly schedule and the current time. No
   picking a folder, no naming a note, no thinking about it.
 - **Zero-friction capture** — the editor is focused on launch and stays the center
-  of the app; you can go from opening Bandnote to typing your first line in under a
+  of the app; you can go from opening FemtoNote to typing your first line in under a
   second, with nothing between you and the text.
 - **Silent, continuous autosave** — a 350 ms debounce with atomic writes means your
   notes are always on disk without a save step, and a partial write can never
   corrupt a session file.
 - **Non-interrupting class boundaries** — when one class ends and the next begins,
-  Bandnote never moves your cursor or reroutes mid-thought; it surfaces a clickable
+  FemtoNote never moves your cursor or reroutes mid-thought; it surfaces a clickable
   *switch* prompt in the status bar and leaves the choice to you.
 - **Inbox fallback** — type outside any scheduled block and the text lands in
   **Inbox** rather than being blocked or lost, so capture always works even at
@@ -110,7 +110,7 @@ occasionally.
 - **OS-following dark mode** — light and dark themes track the system setting, and
   you can override the choice in Settings.
 - **Sub-second start** — a Tauri shell over the system webview means a few-MB binary
-  that launches almost instantly, so opening Bandnote is never a reason to not
+  that launches almost instantly, so opening FemtoNote is never a reason to not
   capture.
 
 ## Scope
@@ -138,7 +138,7 @@ Notes are plain markdown on disk, one file per capture session, under the OS
 app-data directory:
 
 ```
-<app-data>/Bandnote/
+<app-data>/FemtoNote/
   config.json                        # subjects, schedule, export dir, theme
   notes/
     <subject_id>/
@@ -148,7 +148,7 @@ app-data directory:
 Each session file carries a tiny frontmatter block (`subject`, `subject_id`,
 `started`) followed by the raw note body, so it stays readable in any editor and
 backup-able via your own Dropbox or git. On Windows the app-data dir is
-`%APPDATA%\com.bandnote.app\` (shown in **Settings → Output**).
+`%APPDATA%\com.FemtoNote.app\` (shown in **Settings → Output**).
 
 ## Stack
 
@@ -170,8 +170,8 @@ means the Visual Studio C++ Build Tools and the WebView2 runtime (bundled with
 current Windows).
 
 ```bash
-git clone https://github.com/markwu123454/BandNote
-cd BandNote
+git clone https://github.com/markwu123454/FemtoNote
+cd FemtoNote
 npm install            # install frontend dependencies
 
 npm run tauri dev      # launch the native window with hot reload

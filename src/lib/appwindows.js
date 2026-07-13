@@ -34,7 +34,7 @@ async function openOrFocus(label, options) {
 export function openSetup() {
   return openOrFocus("setup", {
     url: "index.html#setup",
-    title: "Setup — Bandnote",
+    title: "Subjects & Schedule — Bandnote",
     width: 640,
     height: 580,
     minWidth: 460,
@@ -48,7 +48,7 @@ export function openSetup() {
 export function openSettings() {
   return openOrFocus("settings", {
     url: "index.html#settings",
-    title: "Settings — Bandnote",
+    title: "Preferences — Bandnote",
     width: 560,
     height: 560,
     minWidth: 440,

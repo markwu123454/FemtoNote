@@ -3,7 +3,9 @@
   import { listen } from "@tauri-apps/api/event";
   import MenuBar from "./components/MenuBar.svelte";
   import Editor from "./components/Editor.svelte";
-  import { loadConfig, saveConfig, writeSession, listSessions, dataDir } from "./lib/api.js";
+  import PastSession from "./components/PastSession.svelte";
+  import { loadConfig, saveConfig, writeSession, listSessions, listSubjectSessions, dataDir } from "./lib/api.js";
+  import { createSpeller } from "./lib/spellcheck.js";
   import {
     openSetup as openSetupWindow,
     openSettings as openSettingsWindow,
@@ -43,12 +45,32 @@
   let searchQuery = "";
   let toasts = [];
   let toastSeq = 0;
+  let subjectMenuOpen = false;
 
   let editorComp; // CodeMirror wrapper instance
   let saveTimer;
   let clockTimer;
   let unlistenConfig;
   let unlistenToast;
+
+  // One speller worker shared by the live editor and every past-session block,
+  // so scrolling into a semester of history doesn't spin up a dictionary-
+  // loading worker per note.
+  const speller = createSpeller();
+
+  // --- Scroll-up session history -------------------------------------------
+  // Past sessions for the current subject, oldest-first, loaded lazily as the
+  // user scrolls toward the top of the capture window. The live buffer always
+  // starts empty; history only becomes visible by scrolling up into it.
+  let scrollerEl;
+  let pastSessions = []; // [{ sessionId, startedAt, content }], oldest-first
+  let historyLoading = false;
+  let historyDone = false;
+  // Tracked in px (not CSS %) because the scroll container's height isn't a
+  // definite value flexbox can resolve percentages against — see live-slot.
+  let liveMinHeight = 280;
+  let scrollerResize;
+  let liveSlotEl;
 
   // --- Derived ------------------------------------------------------------
   $: activeName = session ? subjectName(config, session.subjectId) : "";
@@ -77,11 +99,12 @@
     {
       label: "File",
       items: [
-        { label: "Setup…", hint: "Ctrl ,", action: openSetup },
-        { label: "Settings…", hint: "Ctrl .", action: openSettings },
+        { label: "New session", action: newSession, disabled: !session },
+        { sep: true },
         { label: "Export…", hint: "Ctrl E", action: openExport },
         { sep: true },
-        { label: "New session", action: newSession, disabled: !session },
+        { label: "Subjects & Schedule…", hint: "Ctrl ,", action: openSetup },
+        { label: "Preferences…", hint: "Ctrl .", action: openSettings },
         { sep: true },
         { label: "Exit", action: quitApp },
       ],
@@ -101,26 +124,9 @@
       ],
     },
     {
-      label: "Subject",
-      items: [
-        {
-          label: `Auto — ${subjectName(config, sched.subjectId)}`,
-          checked: routingMode === "auto",
-          action: () => chooseSubject("__auto__"),
-        },
-        { sep: true },
-        ...config.subjects.map((s) => ({
-          label: s.name,
-          checked: routingMode === "manual" && session?.subjectId === s.id,
-          action: () => chooseSubject(s.id),
-        })),
-      ],
-    },
-    {
       label: "View",
       items: [
         { label: "Command palette…", hint: "Ctrl K", action: () => (showPalette = true) },
-        { label: "Find notes…", hint: "Ctrl F", action: openSearch },
         { sep: true },
         {
           label: "Theme",
@@ -149,11 +155,22 @@
     }
     applyTheme(config.theme);
     dataPath = await dataDir().catch(() => "");
-    startSession(scheduledSubject(config, new Date()).subjectId, { silent: true });
+    startSession(scheduledSubject(config, new Date()).subjectId, { silent: true, primeHist: false });
     await refreshSessions();
     ready = true;
     await tick();
     focusEditor();
+    if (scrollerEl) {
+      // Keep the live buffer's floor pinned to the container's actual visible
+      // height (in px — percentages don't resolve here, see .live-slot) so a
+      // short bit of history can never peek out before you scroll for it.
+      liveMinHeight = scrollerEl.clientHeight;
+      scrollerResize = new ResizeObserver(() => {
+        if (scrollerEl) liveMinHeight = scrollerEl.clientHeight;
+      });
+      scrollerResize.observe(scrollerEl);
+    }
+    primeHistory(); // scrollerEl exists now; safe to preload + pin to bottom
 
     clockTimer = setInterval(onTick, 1000);
     window.addEventListener("keydown", onKey);
@@ -175,6 +192,8 @@
     window.removeEventListener("keydown", onKey);
     unlistenConfig?.();
     unlistenToast?.();
+    speller?.destroy();
+    scrollerResize?.disconnect();
   });
 
   // --- Theme --------------------------------------------------------------
@@ -203,7 +222,13 @@
   }
 
   // --- Session management -------------------------------------------------
-  function startSession(subjectId, { silent } = {}) {
+  function startSession(subjectId, { silent, primeHist = true } = {}) {
+    if (session) {
+      // Flush whatever's pending for the outgoing session before we move on —
+      // otherwise up to 350ms of typing could be missing from its history.
+      clearTimeout(saveTimer);
+      persist();
+    }
     const d = new Date();
     session = {
       subjectId,
@@ -214,9 +239,73 @@
     editorComp?.reset(""); // fresh buffer + cleared undo history for the new session
     pendingRoute = null;
     saveState = "idle";
+    resetHistory();
+    if (primeHist) primeHistory();
     if (!silent) {
       pushToast(`Now filing under ${subjectName(config, subjectId)}`, "ok");
       focusEditor();
+    }
+  }
+
+  // --- Scroll-up session history -------------------------------------------
+  function resetHistory() {
+    pastSessions = [];
+    historyDone = false;
+    historyLoading = false;
+  }
+
+  // Preload the first page right after a session starts, then pin the scroll
+  // to the bottom so the capture view still *looks* empty — history is there
+  // the instant you scroll up, with no loading flash.
+  async function primeHistory() {
+    const subj = session?.subjectId;
+    const sid = session?.sessionId;
+    await loadMoreHistory();
+    if (session?.subjectId !== subj || session?.sessionId !== sid) return; // switched again mid-flight
+    await tick();
+    if (scrollerEl) scrollerEl.scrollTop = scrollerEl.scrollHeight;
+  }
+
+  async function loadMoreHistory() {
+    if (!session || historyLoading || historyDone) return;
+    const subjectId = session.subjectId;
+    const cursor = pastSessions.length ? pastSessions[0].sessionId : session.sessionId;
+    historyLoading = true;
+    try {
+      const page = await listSubjectSessions(subjectId, cursor, 8);
+      if (session?.subjectId !== subjectId) return; // subject changed while this was in flight
+      if (!page.length) {
+        historyDone = true;
+        return;
+      }
+      const ordered = [...page].reverse(); // newest-first -> oldest-first for prepending
+      const prevHeight = scrollerEl?.scrollHeight || 0;
+      const prevTop = scrollerEl?.scrollTop || 0;
+      pastSessions = [...ordered, ...pastSessions];
+      await tick();
+      if (scrollerEl) scrollerEl.scrollTop = prevTop + (scrollerEl.scrollHeight - prevHeight);
+    } catch (e) {
+      pushToast("Couldn't load past notes: " + e, "err");
+    } finally {
+      historyLoading = false;
+    }
+  }
+
+  function onHistoryScroll() {
+    if (scrollerEl && scrollerEl.scrollTop < 48) loadMoreHistory();
+  }
+
+  async function savePastSession(meta, content) {
+    try {
+      await writeSession({
+        subject_id: meta.subjectId,
+        subject_name: subjectName(config, meta.subjectId),
+        session_id: meta.sessionId,
+        started_at: meta.startedAt,
+        content,
+      });
+    } catch (e) {
+      pushToast("Couldn't save edit: " + e, "err");
     }
   }
 
@@ -228,7 +317,12 @@
     if (pendingRoute) startSession(pendingRoute, {});
   }
 
+  function toggleSubjectMenu() {
+    subjectMenuOpen = !subjectMenuOpen;
+  }
+
   function chooseSubject(id) {
+    subjectMenuOpen = false;
     if (id === "__auto__") {
       routingMode = "auto";
       const target = scheduledSubject(config, new Date()).subjectId;
@@ -373,6 +467,7 @@
     }
     if (e.key === "Escape") {
       if (showPalette) showPalette = false;
+      else if (subjectMenuOpen) subjectMenuOpen = false;
       else if (searchOpen) {
         searchOpen = false;
         searchQuery = "";
@@ -386,11 +481,21 @@
     editorComp?.focus();
   }
 
+  // The live buffer is "flow"-sized (grows with its content, no inner
+  // scrollbar) but the slot itself is stretched to fill the pane. Clicking in
+  // the blank space below the last line — anywhere the click lands on the
+  // slot itself rather than inside the CodeMirror editor — drops the caret at
+  // the end of the document, so the page reads as one continuous surface
+  // instead of a box you can scroll past.
+  function onLiveSlotClick(e) {
+    if (e.target === liveSlotEl) editorComp?.focusEnd();
+  }
+
   // Command palette actions
   $: paletteActions = [
     { label: "Export to markdown", hint: "Ctrl E", run: openExport },
-    { label: "Open setup", hint: "Ctrl ,", run: openSetup },
-    { label: "Open settings", hint: "Ctrl .", run: openSettings },
+    { label: "Subjects & Schedule", hint: "Ctrl ,", run: openSetup },
+    { label: "Preferences", hint: "Ctrl .", run: openSettings },
     { label: "Find notes", hint: "Ctrl F", run: openSearch },
     {
       label: `Theme: ${config.theme}`,
@@ -418,7 +523,42 @@
     <header class="topbar">
       <div class="left">
         <span class="label subjlabel">Subject</span>
-        <span class="subject mono" class:active={routingActive}>{activeName}</span>
+        <div class="subject-picker">
+          <button
+            class="subject mono"
+            class:active={routingActive}
+            on:click={toggleSubjectMenu}
+          >
+            {activeName}
+            <span class="subject-caret" class:open={subjectMenuOpen}>›</span>
+          </button>
+          {#if subjectMenuOpen}
+            <div class="subject-dropdown" role="menu">
+              <button
+                class="sd-item"
+                role="menuitemradio"
+                aria-checked={routingMode === "auto"}
+                on:click={() => chooseSubject("__auto__")}
+              >
+                <span class="check">{routingMode === "auto" ? "✓" : ""}</span>
+                <span class="sd-label">Auto — {subjectName(config, sched.subjectId)}</span>
+              </button>
+              <div class="sd-sep"></div>
+              {#each config.subjects as s (s.id)}
+                <button
+                  class="sd-item"
+                  role="menuitemradio"
+                  aria-checked={routingMode === "manual" && session?.subjectId === s.id}
+                  on:click={() => chooseSubject(s.id)}
+                >
+                  <span class="check">{routingMode === "manual" && session?.subjectId === s.id ? "✓" : ""}</span>
+                  <span class="sd-label">{s.name}</span>
+                </button>
+              {/each}
+            </div>
+            <button class="scrim" tabindex="-1" aria-hidden="true" on:click={() => (subjectMenuOpen = false)}></button>
+          {/if}
+        </div>
         {#if routingMode === "manual"}
           <span class="mono modetag">manual</span>
         {/if}
@@ -456,18 +596,42 @@
     </header>
 
     <!-- ===== EDITOR (hot path) ===== -->
+    <!-- Scroll up to reveal past sessions for this subject (lazy-loaded,
+         dividers between them); the live buffer at the bottom is the hot path
+         and always starts empty. -->
     <main
       class="editor-wrap"
-      style="--ed-font: {fontStack(ed.font)}; --ed-size: {ed.fontSize}px; --ed-lh: {ed.lineHeight}; --ed-max: {ed.maxWidth === 0 ? 'none' : ed.maxWidth + 'px'}; --ed-mar: {ed.align === 'left' ? '0' : 'auto'};"
+      bind:this={scrollerEl}
+      on:scroll={onHistoryScroll}
+      style="--ed-font: {fontStack(ed.font)}; --ed-size: {ed.fontSize}px; --ed-lh: {ed.lineHeight}; --ed-max: {ed.maxWidth === 0 ? 'none' : ed.maxWidth + 'px'}; --ed-mar: {ed.align === 'left' ? '0' : 'auto'}; --live-min: {liveMinHeight}px;"
     >
-      <Editor
-        bind:this={editorComp}
-        value={editorText}
-        onChange={handleChange}
-        spell={ed}
-        customWords={config.custom_words || []}
-        onAddWord={addWord}
-      />
+      <div class="history-col">
+        {#each pastSessions as ps (ps.sessionId)}
+          <PastSession
+            meta={{ subjectId: session.subjectId, sessionId: ps.sessionId, startedAt: ps.startedAt }}
+            content={ps.content}
+            {speller}
+            spell={ed}
+            customWords={config.custom_words || []}
+            onAddWord={addWord}
+            onSave={savePastSession}
+          />
+        {/each}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <!-- svelte-ignore a11y-no-static-element-interactions -->
+        <div class="live-slot" bind:this={liveSlotEl} on:click={onLiveSlotClick}>
+          <Editor
+            bind:this={editorComp}
+            value={editorText}
+            onChange={handleChange}
+            spell={ed}
+            customWords={config.custom_words || []}
+            onAddWord={addWord}
+            {speller}
+            flow={true}
+          />
+        </div>
+      </div>
     </main>
 
     <!-- ===== STATUS BAR ===== -->
@@ -566,6 +730,87 @@
     color: var(--accent);
     background: var(--accent-tint);
   }
+  .subject-picker {
+    position: relative;
+  }
+  button.subject {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    background: none;
+    border: 1px solid transparent;
+    cursor: default;
+    font-family: var(--font-mono);
+  }
+  .subject-caret {
+    display: inline-block;
+    font-size: 12px;
+    color: var(--text-faint);
+    transition: transform 120ms ease-out;
+  }
+  .subject.active .subject-caret {
+    color: var(--accent);
+  }
+  .subject-caret.open {
+    transform: rotate(90deg);
+  }
+  .subject-dropdown {
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 0;
+    z-index: 3;
+    min-width: 240px;
+    padding: 10px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow-dialog);
+    animation: slide-up 110ms ease-out;
+  }
+  .sd-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    background: none;
+    border: none;
+    border-radius: 10px;
+    padding: 9px 12px;
+    cursor: default;
+    color: var(--text);
+    text-align: left;
+    font-size: var(--fs-chrome);
+    white-space: nowrap;
+  }
+  .sd-item:hover {
+    background: var(--accent-tint);
+    color: var(--text-strong);
+  }
+  .sd-label {
+    flex: 1;
+  }
+  .sd-sep {
+    height: 1px;
+    margin: 8px 8px;
+    background: var(--border);
+  }
+  .sd-item .check {
+    width: 14px;
+    flex: none;
+    text-align: center;
+    color: var(--accent);
+    font-size: 12px;
+  }
+  .subject-picker .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    background: transparent;
+    border: none;
+    margin: 0;
+    padding: 0;
+    cursor: default;
+  }
   .modetag {
     font-size: 11px;
     color: var(--text-faint);
@@ -657,11 +902,28 @@
 
   /* ---- Editor ---- */
   /* The writing surface is CodeMirror (see Editor.svelte). Typography/width/
-     alignment are passed down as the --ed-* custom properties on this wrap. */
+     alignment are passed down as the --ed-* custom properties on this wrap.
+     It's also the scroll container for session history: scrolling up reveals
+     past sessions stacked above the live buffer. */
   .editor-wrap {
-    overflow: hidden;
+    overflow-y: auto;
     background: var(--bg);
     user-select: text;
+  }
+  .history-col {
+    min-height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .live-slot {
+    /* Always at least the container's full visible height (tracked in px via
+       --live-min, see App.svelte's ResizeObserver — percentages can't resolve
+       against a shrink-to-fit ancestor), so any history sits entirely above
+       the fold: a fresh session looks exactly as empty as before, no matter
+       how short the loaded history happens to be. */
+    flex: 1 0 auto;
+    min-height: var(--live-min, 280px);
+    cursor: text;
   }
 
   /* ---- Status bar ---- */

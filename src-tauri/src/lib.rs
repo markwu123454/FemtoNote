@@ -164,6 +164,13 @@ struct SessionMeta {
     words: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SessionFull {
+    session_id: String,
+    started_at: String,
+    content: String,
+}
+
 // ---------------------------------------------------------------------------
 // Path helpers
 // ---------------------------------------------------------------------------
@@ -346,6 +353,60 @@ fn list_sessions(app: tauri::AppHandle) -> Result<Vec<SessionMeta>, String> {
     Ok(out)
 }
 
+/// A page of a single subject's past sessions, full content included, for the
+/// capture window's scroll-up history. `before` is an exclusive cursor
+/// (session ids are timestamp-sortable strings, so plain `<` works); pass the
+/// active session's id on the first page so it's never shown as its own history.
+#[tauri::command]
+fn list_subject_sessions(
+    app: tauri::AppHandle,
+    subject_id: String,
+    before: Option<String>,
+    limit: usize,
+) -> Result<Vec<SessionFull>, String> {
+    let dir = notes_root(&app)?.join(sanitize(&subject_id));
+    let mut ids: Vec<String> = match fs::read_dir(&dir) {
+        Ok(rd) => rd
+            .flatten()
+            .filter_map(|e| {
+                let p = e.path();
+                if p.extension().and_then(|x| x.to_str()) == Some("md") {
+                    p.file_stem().map(|s| s.to_string_lossy().to_string())
+                } else {
+                    None
+                }
+            })
+            .collect(),
+        Err(_) => return Ok(vec![]),
+    };
+    ids.sort();
+    ids.reverse(); // newest first
+
+    let mut out = Vec::new();
+    for id in ids {
+        if let Some(cursor) = &before {
+            if id.as_str() >= cursor.as_str() {
+                continue;
+            }
+        }
+        if out.len() >= limit {
+            break;
+        }
+        let p = session_file(&app, &subject_id, &id)?;
+        let raw = fs::read_to_string(&p).unwrap_or_default();
+        let parsed = parse_session_file(&raw);
+        if parsed.content.trim().is_empty() {
+            continue;
+        }
+        out.push(SessionFull {
+            session_id: id,
+            started_at: parsed.started_at,
+            content: parsed.content,
+        });
+    }
+    Ok(out)
+}
+
 /// Build clean, date-ordered markdown for one subject and return it (without
 /// writing). Used for the export preview.
 #[tauri::command]
@@ -461,6 +522,7 @@ pub fn run() {
             save_config,
             write_session,
             list_sessions,
+            list_subject_sessions,
             preview_subject,
             export_subject,
             export_all,
